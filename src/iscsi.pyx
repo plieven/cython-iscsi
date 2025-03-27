@@ -78,14 +78,14 @@ cdef extern from "iscsi/iscsi.h":
     cdef int iscsi_set_header_digest(iscsi_context *iscsi, iscsi_header_digest header_digest)
     cdef int iscsi_set_initiator_username_pwd(iscsi_context *iscsi, const char *user, const char *passwd)
     cdef int iscsi_set_target_username_pwd(iscsi_context *iscsi, const char *user, const char *passwd)
-    cdef int iscsi_full_connect_sync(iscsi_context *iscsi, const char *portal, int lun)
+    cdef int iscsi_full_connect_sync(iscsi_context *iscsi, const char *portal, int lun) nogil
     cdef int iscsi_disconnect(iscsi_context *iscsi)
 
     cdef int scsi_task_add_data_in_buffer(scsi_task *task, int len, unsigned char *buf)
     cdef int scsi_task_add_data_out_buffer(scsi_task *task, int len, unsigned char *buf)
 
     cdef scsi_task *iscsi_scsi_command_sync(
-        iscsi_context *iscsi, int lun, scsi_task *task, iscsi_data *data)
+        iscsi_context *iscsi, int lun, scsi_task *task, iscsi_data *data) nogil
     cdef int scsi_task_get_status(scsi_task *task, scsi_sense *sense)
 
     cdef iscsi_discovery_address *iscsi_discovery_sync(iscsi_context *iscsi)
@@ -140,7 +140,12 @@ cdef class Context:
             raise ValueError("Invalid target user/pass: %s" % user)
 
     def connect(self, str portal, int lun):
-        if iscsi_full_connect_sync(self._ctx, portal.encode('utf-8'), lun) < 0:
+        cdef bytes portal_b = portal.encode('utf-8')
+        cdef char *p_ptr = portal_b
+        cdef int rc
+        with nogil:
+            rc = iscsi_full_connect_sync(self._ctx, p_ptr, lun)
+        if rc < 0:
             raise RuntimeError("Unable to connect to %s" % portal)
 
     def disconnect(self):
@@ -159,7 +164,8 @@ cdef class Context:
             if scsi_task_add_data_in_buffer(task._task, len(data_in), &data_in_view[0]) < 0:
                 raise ValueError("Invalid data_in argument.")
 
-        iscsi_scsi_command_sync(self._ctx, lun, task._task, NULL)
+        with nogil:
+            iscsi_scsi_command_sync(self._ctx, lun, task._task, NULL)
 
     def discover(self):
         _da = iscsi_discovery_sync(self._ctx)
